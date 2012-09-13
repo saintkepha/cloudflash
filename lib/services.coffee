@@ -60,7 +60,6 @@ db.on 'load', ->
     path = require 'path'
     exec = require('child_process').exec
 
-
     @get '/services': ->
         res = { 'services': [] }
         db.forEach (key,val) ->
@@ -91,6 +90,24 @@ db.on 'load', ->
         else
             return @next result
 
+    handleServiceModule = (request, body, params, moduleName) ->
+        service = request.service
+        if moduleName == ''
+            moduleName = service.description.name
+        console.log 'module name is ' + moduleName
+        try
+            serviceModule = require(moduleName)
+            srvModule = new serviceModule
+            console.log 'loading module ' + moduleName
+            console.log srvModule.sample
+            res = srvModule.serviceHandler(request, body, params, db)
+            res = srvModule.sample()
+		
+        catch err
+           res = 'Unsupported path request.url'
+
+        return res
+    
     @post '/services', validateServiceDesc, ->
         service = { }
         service.id = uuid.v4()
@@ -124,7 +141,8 @@ db.on 'load', ->
                     console.log "checking for service package at #{filename}"
                     if path.existsSync filename
                         console.log 'found service package, issuing dpkg -i'
-                        exec "dpkg -i -F depends #{filename}", (error, stdout, stderr) =>
+			#exec "dpkg -i -F depends #{filename}", (error, stdout, stderr) =>
+                        exec "echo #{filename}", (error, stdout, stderr) =>
                             return @next new Error "Unable to install service package!" if error
 
                             console.log "verifying that the package has been installed as #{desc.name}"
@@ -212,6 +230,18 @@ db.on 'load', ->
                     #      return @next new Error "Unable to remove services directory : #{desc.name}!" if error
                     @send { deleted: true }
 
+    @post '/services/:id/*', loadService, ->
+        console.log "ravi in post /services/:id/*"
+        res = handleServiceModule(@request, @body, @params, '')
+        @send res
+
+    #personality is not a service module, it is workaround for firewall. 
+    #TODO: remove after firewall service gets added.
+    @post '/personality': ->
+        console.log 'In post /services/:id/personality'
+        res = handleServiceModule(@request, @body, @params, 'personality')
+        @send res
+            
     @post '/services/:id/action', loadService, ->
         return @next new Error "Invalid service posting!" unless @body.command
         service = @request.service
